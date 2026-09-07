@@ -191,19 +191,46 @@
 
 <script>
 /* ============================ DADOS ============================ */
-/* Persistência: localStorage — funciona no site hospedado (GitHub Pages / Vercel)
-   e também abrindo o arquivo direto. Próxima parte: trocar por Supabase (online). */
-const PREFIX = 'ivendas_';
+/* Banco online: Supabase (tabela ivendas_kv). Guarda um cache no navegador
+   pra funcionar mesmo sem internet e não perder dados. */
+const SUPABASE_URL = 'https://xmzhvhoxwoswkytlodjk.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_hetdVT6470_74NaJVyTulA_d2wiE4_j';
+const SB_TABLE = 'ivendas_kv';
+const CACHE = 'ivendas_';
+const SB_HEADERS = { 'apikey':SUPABASE_KEY, 'Authorization':'Bearer '+SUPABASE_KEY, 'Content-Type':'application/json' };
+
 const Store = {
+  _warned:false,
   async get(key){
-    try{ const v = localStorage.getItem(PREFIX+key); return v ? JSON.parse(v) : null; }catch(e){ return null; }
+    try{
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/${SB_TABLE}?key=eq.${encodeURIComponent(key)}&select=data`, { headers:SB_HEADERS });
+      if(!r.ok) throw new Error('http '+r.status);
+      const j = await r.json();
+      const val = j[0] ? j[0].data : null;
+      try{ localStorage.setItem(CACHE+key, JSON.stringify(val)); }catch(e){}
+      return val;
+    }catch(e){
+      try{ const v = localStorage.getItem(CACHE+key); return v ? JSON.parse(v) : null; }catch(_){ return null; }
+    }
   },
   async set(key,val){
-    try{ localStorage.setItem(PREFIX+key, JSON.stringify(val)); }
-    catch(e){ alert('Sem espaço pra salvar. Faça um backup (⚙️) e remova recibos antigos.'); }
+    try{ localStorage.setItem(CACHE+key, JSON.stringify(val)); }catch(e){}
+    try{
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/${SB_TABLE}`, {
+        method:'POST',
+        headers:{ ...SB_HEADERS, 'Prefer':'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify({ key, data:val })
+      });
+      if(!r.ok) throw new Error('http '+r.status);
+      return true;
+    }catch(e){
+      if(!Store._warned){ Store._warned=true; try{ toast('Sem conexão com o banco — salvo no aparelho'); }catch(_){}}
+      return false;
+    }
   },
   async del(key){
-    try{ localStorage.removeItem(PREFIX+key); }catch(e){}
+    try{ localStorage.removeItem(CACHE+key); }catch(e){}
+    try{ await fetch(`${SUPABASE_URL}/rest/v1/${SB_TABLE}?key=eq.${encodeURIComponent(key)}`, { method:'DELETE', headers:SB_HEADERS }); }catch(e){}
   }
 };
 
