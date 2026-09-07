@@ -154,6 +154,10 @@
 
   @media(min-width:560px){ .brand{font-size:1.3rem;} }
 
+  .logged-out header .icon-btn, .logged-out nav{ display:none; }
+  .login-wrap{ min-height:72vh; display:grid; place-items:center; padding:20px; }
+  .login-card{ background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow); padding:26px 22px; width:100%; max-width:360px; }
+
   @media print{
     header,nav,.overlay,.sheet-head,.no-print{display:none !important;}
     body{background:#fff; padding:0;}
@@ -190,20 +194,51 @@
 <div class="toast" id="toast"></div>
 
 <script>
-/* ============================ DADOS ============================ */
-/* Banco online: Supabase (tabela ivendas_kv). Guarda um cache no navegador
-   pra funcionar mesmo sem internet e não perder dados. */
+/* ============================ DADOS + LOGIN ============================ */
+/* Banco online: Supabase (tabela ivendas_kv), protegido por login.
+   Só quem tem conta lê/grava. Guarda cache local pra funcionar offline. */
 const SUPABASE_URL = 'https://xmzhvhoxwoswkytlodjk.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_hetdVT6470_74NaJVyTulA_d2wiE4_j';
 const SB_TABLE = 'ivendas_kv';
 const CACHE = 'ivendas_';
-const SB_HEADERS = { 'apikey':SUPABASE_KEY, 'Authorization':'Bearer '+SUPABASE_KEY, 'Content-Type':'application/json' };
+const SESSION_KEY = 'ivendas_session';
+
+let session = null;
+function loadSession(){ try{ session = JSON.parse(localStorage.getItem(SESSION_KEY)); }catch(e){ session=null; } }
+function saveSession(j){ session = { access_token:j.access_token, refresh_token:j.refresh_token, expires_at: Date.now()+((j.expires_in||3600)*1000) }; try{ localStorage.setItem(SESSION_KEY, JSON.stringify(session)); }catch(e){} }
+function clearSession(){ session=null; try{ localStorage.removeItem(SESSION_KEY); }catch(e){} }
+
+async function sbLogin(email, password){
+  const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    method:'POST', headers:{ apikey:SUPABASE_KEY, 'Content-Type':'application/json' },
+    body: JSON.stringify({ email:(email||'').trim().toLowerCase(), password })
+  });
+  if(!r.ok) return false;
+  saveSession(await r.json()); return true;
+}
+async function sbRefresh(){
+  if(!session || !session.refresh_token) return false;
+  const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+    method:'POST', headers:{ apikey:SUPABASE_KEY, 'Content-Type':'application/json' },
+    body: JSON.stringify({ refresh_token: session.refresh_token })
+  });
+  if(!r.ok){ clearSession(); return false; }
+  saveSession(await r.json()); return true;
+}
+function authHeaders(){
+  return { apikey:SUPABASE_KEY, 'Authorization':'Bearer '+(session ? session.access_token : SUPABASE_KEY), 'Content-Type':'application/json' };
+}
+async function sbFetch(path, opts={}, retry=true){
+  const r = await fetch(`${SUPABASE_URL}${path}`, { ...opts, headers:{ ...authHeaders(), ...(opts.headers||{}) } });
+  if(r.status===401 && retry){ if(await sbRefresh()) return sbFetch(path, opts, false); }
+  return r;
+}
 
 const Store = {
   _warned:false,
   async get(key){
     try{
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/${SB_TABLE}?key=eq.${encodeURIComponent(key)}&select=data`, { headers:SB_HEADERS });
+      const r = await sbFetch(`/rest/v1/${SB_TABLE}?key=eq.${encodeURIComponent(key)}&select=data`);
       if(!r.ok) throw new Error('http '+r.status);
       const j = await r.json();
       const val = j[0] ? j[0].data : null;
@@ -216,21 +251,21 @@ const Store = {
   async set(key,val){
     try{ localStorage.setItem(CACHE+key, JSON.stringify(val)); }catch(e){}
     try{
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/${SB_TABLE}`, {
+      const r = await sbFetch(`/rest/v1/${SB_TABLE}`, {
         method:'POST',
-        headers:{ ...SB_HEADERS, 'Prefer':'resolution=merge-duplicates,return=minimal' },
+        headers:{ 'Prefer':'resolution=merge-duplicates,return=minimal' },
         body: JSON.stringify({ key, data:val })
       });
       if(!r.ok) throw new Error('http '+r.status);
       return true;
     }catch(e){
-      if(!Store._warned){ Store._warned=true; try{ toast('Sem conexão com o banco — salvo no aparelho'); }catch(_){}}
+      if(!Store._warned){ Store._warned=true; try{ toast('Sem conexão — salvo no aparelho'); }catch(_){}}
       return false;
     }
   },
   async del(key){
     try{ localStorage.removeItem(CACHE+key); }catch(e){}
-    try{ await fetch(`${SUPABASE_URL}/rest/v1/${SB_TABLE}?key=eq.${encodeURIComponent(key)}`, { method:'DELETE', headers:SB_HEADERS }); }catch(e){}
+    try{ await sbFetch(`/rest/v1/${SB_TABLE}?key=eq.${encodeURIComponent(key)}`, { method:'DELETE' }); }catch(e){}
   }
 };
 
@@ -1018,6 +1053,13 @@ function openConfig(){
       <p class="sub" style="color:var(--muted)">O botão “Relatório do mês” (tela Início) monta o e-mail já preenchido pra esse endereço, é só tocar em enviar.</p>
     </div>
 
+    <div class="section-title">Conta e segurança</div>
+    <div class="card card-pad">
+      <div class="field" style="margin-bottom:8px"><label>Trocar senha (mín. 6 caracteres)</label><input id="gSenha" type="password" placeholder="nova senha"></div>
+      <button class="btn block" onclick="trocarSenha()">Trocar senha</button>
+      <button class="btn danger block mt-s" onclick="sair()">Sair (logout)</button>
+    </div>
+
     <div class="section-title">Backup dos dados</div>
     <div class="card card-pad">
       <p class="sub" style="color:var(--muted);margin-bottom:10px">Baixe um arquivo com tudo (clientes, vendas, recibos) pra guardar. Se trocar de aparelho, é só importar.</p>
@@ -1041,6 +1083,16 @@ function salvarConfig(){
     emailRelatorio:document.getElementById('gEmail').value.trim()
   };
   saveConfig(); closeSheet(); toast('Configurações salvas ✅');
+}
+
+async function trocarSenha(){
+  const nova = document.getElementById('gSenha').value;
+  if(!nova || nova.length<6){ toast('Senha muito curta (mín. 6)'); return; }
+  try{
+    const r = await sbFetch('/auth/v1/user', { method:'PUT', body: JSON.stringify({ password: nova }) });
+    if(r.ok){ document.getElementById('gSenha').value=''; toast('Senha alterada ✅'); }
+    else toast('Não consegui trocar a senha');
+  }catch(e){ toast('Sem conexão'); }
 }
 
 async function exportar(){
@@ -1070,10 +1122,45 @@ function importar(inp){
   reader.readAsText(f);
 }
 
-/* ============================ INIT ============================ */
-(async ()=>{
+/* ============================ INIT / LOGIN ============================ */
+function showLogin(msg){
+  document.body.classList.add('logged-out');
+  document.getElementById('app').innerHTML = `
+    <div class="login-wrap">
+      <div class="login-card">
+        <div class="brand" style="justify-content:center;margin-bottom:6px"><span class="dot">📱</span> iVendas</div>
+        <p class="center" style="color:var(--muted);margin-bottom:18px">Entre para acessar suas vendas</p>
+        <div class="field"><label>E-mail</label><input id="loginEmail" type="email" value="matheus@msxinv.com.br" autocomplete="username"></div>
+        <div class="field"><label>Senha</label><input id="loginPass" type="password" autocomplete="current-password" placeholder="sua senha"></div>
+        ${msg?`<p class="center" style="color:var(--red);font-size:.85rem;margin-bottom:10px">${esc(msg)}</p>`:''}
+        <button class="btn blue block" id="loginBtn" onclick="fazerLogin()">Entrar</button>
+      </div>
+    </div>`;
+  const p = document.getElementById('loginPass');
+  if(p) p.addEventListener('keydown', e=>{ if(e.key==='Enter') fazerLogin(); });
+}
+async function fazerLogin(){
+  const email = document.getElementById('loginEmail').value;
+  const pass = document.getElementById('loginPass').value;
+  if(!pass){ showLogin('Digite sua senha'); return; }
+  const btn = document.getElementById('loginBtn'); if(btn){ btn.textContent='Entrando...'; btn.disabled=true; }
+  const ok = await sbLogin(email, pass);
+  if(!ok){ showLogin('E-mail ou senha incorretos'); return; }
+  await bootApp();
+}
+async function bootApp(){
+  document.body.classList.remove('logged-out');
   await load();
-  render();
+  go('inicio');
+}
+async function sair(){
+  clearSession(); closeSheet(); showLogin();
+}
+
+(async ()=>{
+  loadSession();
+  if(session && session.expires_at && session.expires_at < Date.now()+60000){ await sbRefresh(); }
+  if(session){ await bootApp(); } else { showLogin(); }
 })();
 </script>
 </body>
