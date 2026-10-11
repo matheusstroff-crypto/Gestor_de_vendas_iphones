@@ -154,6 +154,27 @@
 
   @media(min-width:560px){ .brand{font-size:1.3rem;} }
 
+  /* Simulador / Estoque */
+  .check{display:flex; align-items:center; gap:9px; font-size:.92rem; padding:4px 2px;}
+  .check input{width:20px; height:20px; accent-color:var(--blue);}
+  .msg-area{width:100%; min-height:260px; padding:12px 13px; border:1px solid var(--line); border-radius:11px; background:var(--surface-2); color:var(--ink); font-size:.9rem; line-height:1.5; resize:vertical; outline:none;}
+  .msg-area:focus{border-color:var(--blue); box-shadow:0 0 0 3px var(--blue-soft);}
+  .btn-row{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;}
+  .stat .val.sm{font-size:1.2rem;}
+  .stat .hint{font-size:.74rem; color:var(--muted); margin-top:2px;}
+  .tbl-wrap{overflow-x:auto;}
+  .tbl{width:100%; border-collapse:collapse; font-size:.86rem; font-variant-numeric:tabular-nums;}
+  .tbl th{font-size:.72rem; color:var(--muted); font-weight:600; text-align:right; padding:10px 12px; border-bottom:1px solid var(--line); white-space:nowrap;}
+  .tbl td{padding:10px 12px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;}
+  .tbl tr:last-child td{border-bottom:none;}
+  .tbl th:first-child,.tbl td:first-child{text-align:left;}
+  .tbl td.nm{white-space:normal; min-width:150px; font-weight:600;}
+  details.card summary{padding:14px 16px; font-weight:600; cursor:pointer; list-style:none; display:flex; justify-content:space-between;}
+  details.card summary::after{content:'›'; color:#c4c4cc; font-size:20px; line-height:1; transition:transform .2s;}
+  details.card[open] summary::after{transform:rotate(90deg);}
+  details.card summary::-webkit-details-marker{display:none;}
+  .grid2 > *, .grid3 > *{min-width:0;}
+
   .logged-out header .icon-btn, .logged-out nav{ display:none; }
   .login-wrap{ min-height:72vh; display:grid; place-items:center; padding:20px; }
   .login-card{ background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow); padding:26px 22px; width:100%; max-width:360px; }
@@ -179,6 +200,8 @@
   <button id="tab-inicio" class="active" onclick="go('inicio')"><span class="ic">🏠</span>Início</button>
   <button id="tab-vendas" onclick="go('vendas')"><span class="ic">🧾</span>Vendas</button>
   <button id="tab-clientes" onclick="go('clientes')"><span class="ic">👥</span>Clientes</button>
+  <button id="tab-simular" onclick="go('simular')"><span class="ic">🧮</span>Simular</button>
+  <button id="tab-estoque" onclick="go('estoque')"><span class="ic">📦</span>Estoque</button>
 </nav>
 
 <!-- Overlay + Sheet -->
@@ -276,6 +299,7 @@ async function load(){
   db.config   = (await Store.get('config'))   || { vendedor:'', telefone:'', pixChave:'03709746035', pixTipo:'CPF/CNPJ', pixNome:'', pixBanco:'', cidade:'', emailRelatorio:'Matheus@msxinv.com.br' };
   db.clientes = (await Store.get('clientes')) || [];
   db.vendas   = (await Store.get('vendas'))   || [];
+  db.listaForn = (await Store.get('listaFornecedor')) || '';
 }
 const saveClientes = ()=> Store.set('clientes', db.clientes);
 const saveVendas   = ()=> Store.set('vendas', db.vendas);
@@ -337,7 +361,7 @@ function pixCopiaCola(valor){
 /* ============================ NAVEGAÇÃO ============================ */
 function go(v){
   view = v;
-  ['inicio','vendas','clientes'].forEach(t=>{
+  ['inicio','vendas','clientes','simular','estoque'].forEach(t=>{
     document.getElementById('tab-'+t).classList.toggle('active', t===v);
   });
   render();
@@ -347,7 +371,252 @@ function render(){
   if(view==='inicio')   app.innerHTML = viewInicio();
   if(view==='vendas')   app.innerHTML = viewVendas();
   if(view==='clientes') app.innerHTML = viewClientes();
+  if(view==='simular'){ app.innerHTML = viewSimular(); calcSim(); }
+  if(view==='estoque'){ app.innerHTML = viewEstoque(); calcEst(); }
   window.scrollTo(0,0);
+}
+
+/* ============================ PRECIFICAÇÃO (compartilhada) ============================ */
+function P(){
+  if(!db.config.preco) db.config.preco = { moto:40, brinde:60, margem:18, modo:'custo', arred:1, juros:3, parcelas:12 };
+  return db.config.preco;
+}
+const num = id => Number(document.getElementById(id)?.value||0);
+function lerPreco(){
+  const p = P();
+  p.moto = num('pMoto'); p.brinde = num('pBrinde'); p.margem = num('pMargem');
+  p.modo = document.getElementById('pModo').value; p.arred = Number(document.getElementById('pArred').value)||1;
+  clearTimeout(lerPreco._t); lerPreco._t = setTimeout(saveConfig, 800);
+}
+function precoVenda(custoProduto){
+  const p = P();
+  const custo = Number(custoProduto||0) + Number(p.moto||0) + Number(p.brinde||0);
+  const m = Number(p.margem||0)/100;
+  const base = p.modo==='venda' ? (m<1 ? custo/(1-m) : custo) : custo*(1+m);
+  const mult = Number(p.arred)||1;
+  return { custo, venda: Math.ceil(base/mult - 1e-9)*mult };
+}
+function pmtPrice(pv, i, n){ return i>0 ? pv*i/(1-Math.pow(1+i,-n)) : pv/n; }
+function custosCard(onchange){
+  const p = P();
+  return `
+    <div class="section-title">Seus custos e lucro (valem para Simular e Estoque)</div>
+    <div class="card card-pad">
+      <div class="grid2">
+        <div class="field"><label>Motoboy (R$)</label><input id="pMoto" type="number" step="0.01" inputmode="decimal" value="${p.moto}" oninput="lerPreco();${onchange}()"></div>
+        <div class="field"><label>Brindes / acessórios (R$)</label><input id="pBrinde" type="number" step="0.01" inputmode="decimal" value="${p.brinde}" oninput="lerPreco();${onchange}()"></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>Lucro (%)</label><input id="pMargem" type="number" step="0.1" inputmode="decimal" value="${p.margem}" oninput="lerPreco();${onchange}()"></div>
+        <div class="field"><label>Lucro calculado</label>
+          <select id="pModo" onchange="lerPreco();${onchange}()">
+            <option value="custo" ${p.modo==='custo'?'selected':''}>Sobre o custo</option>
+            <option value="venda" ${p.modo==='venda'?'selected':''}>Sobre a venda</option>
+          </select></div>
+      </div>
+      <div class="field" style="margin-bottom:0"><label>Arredondar preço para cima</label>
+        <select id="pArred" onchange="lerPreco();${onchange}()">
+          ${[[1,'R$ inteiro (ex.: 2.467)'],[10,'Dezena (ex.: 2.470)'],[50,'Múltiplo de 50 (ex.: 2.500)']].map(([v,l])=>`<option value="${v}" ${Number(p.arred)===v?'selected':''}>${l}</option>`).join('')}
+        </select></div>
+    </div>`;
+}
+async function copiarTexto(id){
+  const el = document.getElementById(id);
+  try{ await navigator.clipboard.writeText(el.value); toast('Copiado ✅'); }
+  catch(e){ el.focus(); el.select(); toast('Texto selecionado, use copiar'); }
+}
+function abrirWhats(id, phone){
+  const t = document.getElementById(id).value;
+  window.open(phone ? waLink(phone, t) : `https://wa.me/?text=${encodeURIComponent(t)}`, '_blank');
+}
+
+/* ============================ VIEW: SIMULAR ============================ */
+let sim = null;
+function viewSimular(){
+  const p = P();
+  if(!sim) sim = { clienteId:'', produto:'', custo:'', entrada:'', n:p.parcelas, juros:p.juros, venc:addMonthsISO(todayISO(),1), forma:'Pix', validade:3, arredParc:true, crono:true };
+  const opCli = db.clientes.slice().sort((a,b)=>a.nome.localeCompare(b.nome))
+    .map(c=>`<option value="${c.id}" ${sim.clienteId===c.id?'selected':''}>${esc(c.nome)}</option>`).join('');
+  return `
+    <div class="section-title">Aparelho</div>
+    <div class="card card-pad">
+      <div class="field"><label>Modelo / descrição</label><input id="sProd" value="${esc(sim.produto)}" placeholder="Ex: iPhone 17 Pro Max 256GB Azul" oninput="calcSim()"></div>
+      <div class="field" style="margin-bottom:0"><label>Custo do aparelho (R$)</label><input id="sCusto" type="number" step="0.01" inputmode="decimal" value="${sim.custo}" placeholder="Valor do fornecedor" oninput="calcSim()"></div>
+    </div>
+
+    ${custosCard('calcSim')}
+
+    <div class="section-title">Condições</div>
+    <div class="card card-pad">
+      <div class="grid3">
+        <div class="field"><label>Entrada (R$)</label><input id="sEnt" type="number" step="0.01" inputmode="decimal" value="${sim.entrada}" placeholder="0" oninput="calcSim()"></div>
+        <div class="field"><label>Parcelas</label><input id="sN" type="number" min="1" max="36" inputmode="numeric" value="${sim.n}" oninput="calcSim()"></div>
+        <div class="field"><label>Juros a.m. (%)</label><input id="sJ" type="number" step="0.01" inputmode="decimal" value="${sim.juros}" oninput="calcSim()"></div>
+      </div>
+      <div class="grid3">
+        <div class="field"><label>1º vencimento</label><input id="sVenc" type="date" value="${sim.venc}" oninput="calcSim()"></div>
+        <div class="field"><label>Pagamento</label><select id="sForma" onchange="calcSim()">${['Pix','Boleto','Transferência'].map(x=>`<option ${sim.forma===x?'selected':''}>${x}</option>`).join('')}</select></div>
+        <div class="field"><label>Validade (dias)</label><input id="sVal" type="number" min="1" inputmode="numeric" value="${sim.validade}" oninput="calcSim()"></div>
+      </div>
+      <label class="check"><input type="checkbox" id="sArr" ${sim.arredParc?'checked':''} onchange="calcSim()"> Arredondar parcela para cima (R$ inteiro)</label>
+    </div>
+
+    <div class="section-title">Resultado</div>
+    <div class="stats">
+      <div class="stat"><div class="lbl">Preço à vista</div><div class="val" id="oVista">–</div></div>
+      <div class="stat"><div class="lbl">Parcela</div><div class="val blue" id="oParc">–</div><div class="hint" id="oParcHint"></div></div>
+      <div class="stat"><div class="lbl">Total a prazo</div><div class="val sm" id="oTotal">–</div></div>
+      <div class="stat"><div class="lbl">Custo total</div><div class="val sm" id="oCusto">–</div></div>
+      <div class="stat"><div class="lbl">Lucro à vista</div><div class="val sm green" id="oLV">–</div><div class="hint" id="oLVh"></div></div>
+      <div class="stat"><div class="lbl">Lucro parcelado</div><div class="val sm green" id="oLP">–</div><div class="hint" id="oLPh"></div></div>
+    </div>
+    <details class="card mt">
+      <summary>Tabela de parcelas (Price)</summary>
+      <div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>Nº</th><th>Vencimento</th><th>Parcela</th><th>Juros</th><th>Saldo</th></tr></thead>
+        <tbody id="oTb"></tbody>
+      </table></div>
+    </details>
+
+    <div class="section-title">Mensagem para o cliente</div>
+    <div class="card card-pad">
+      <div class="field"><label>Cliente</label>
+        <select id="sCli" onchange="calcSim()"><option value="">— sem cliente cadastrado —</option>${opCli}</select></div>
+      <label class="check" style="margin-bottom:8px"><input type="checkbox" id="sCrono" ${sim.crono?'checked':''} onchange="calcSim()"> Incluir datas das parcelas</label>
+      <textarea class="msg-area" id="sMsg"></textarea>
+      <div class="btn-row">
+        <button class="btn primary" onclick="copiarTexto('sMsg')">Copiar</button>
+        <button class="btn green" onclick="enviarSimWhats()">WhatsApp</button>
+      </div>
+    </div>
+    <button class="btn blue block mt" onclick="simParaVenda()">＋ Registrar como venda</button>
+    <p class="fab-note">Os custos e o lucro não aparecem na mensagem.</p>`;
+}
+function calcSim(){
+  if(!document.getElementById('sCusto')) return null;
+  const v = id => document.getElementById(id).value;
+  Object.assign(sim, { produto:v('sProd'), custo:v('sCusto'), entrada:v('sEnt'), n:v('sN'), juros:v('sJ'), venc:v('sVenc'),
+    forma:v('sForma'), validade:v('sVal'), clienteId:v('sCli'), arredParc:document.getElementById('sArr').checked, crono:document.getElementById('sCrono').checked });
+  const { custo, venda } = precoVenda(sim.custo);
+  const ent = Number(sim.entrada||0), n = Math.max(1, Math.round(Number(sim.n)||1)), i = Number(sim.juros||0)/100;
+  const pv = Math.max(0, venda-ent);
+  let pmt = pmtPrice(pv, i, n); if(sim.arredParc) pmt = Math.ceil(pmt - 1e-9);
+  const total = pmt*n + ent;
+  const venc1 = sim.venc || addMonthsISO(todayISO(),1);
+  let saldo = pv, rows = '', datas = [];
+  for(let k=1;k<=n;k++){
+    const j = saldo*i; saldo = Math.max(0, saldo-(pmt-j));
+    const d = addMonthsISO(venc1, k-1); datas.push(d);
+    rows += `<tr><td>${k}</td><td>${fmtDate(d)}</td><td>${money(pmt)}</td><td>${money(j)}</td><td>${money(saldo)}</td></tr>`;
+  }
+  const pct = (a,b)=> b>0 ? (a/b*100).toLocaleString('pt-BR',{maximumFractionDigits:1})+'%' : '';
+  const set = (id,t)=>{ document.getElementById(id).textContent = t; };
+  const temCusto = Number(sim.custo)>0;
+  set('oVista', temCusto?money(venda):'–'); set('oParc', temCusto?money(pmt):'–'); set('oParcHint', temCusto?`${n}x · ${(i*100).toLocaleString('pt-BR')}% a.m.`:'Informe o custo do aparelho');
+  set('oTotal', temCusto?money(total):'–'); set('oCusto', temCusto?money(custo):'–');
+  set('oLV', temCusto?money(venda-custo):'–'); set('oLVh', temCusto?pct(venda-custo,custo)+' sobre o custo':'');
+  set('oLP', temCusto?money(total-custo):'–'); set('oLPh', temCusto?pct(total-custo,custo)+' com os juros':'');
+  document.getElementById('oTb').innerHTML = temCusto ? rows : '';
+
+  const c = clienteById(sim.clienteId), cfg = db.config, prod = sim.produto.trim() || 'iPhone', val = Number(sim.validade)||3;
+  let t = `Olá${c?', '+c.nome.split(' ')[0]:''}! Tudo bem?\n\nSegue a proposta para o *${prod}*:\n\n`;
+  t += `*Valor à vista:* ${money(venda)}\n`;
+  if(ent>0) t += `*Entrada:* ${money(ent)}\n`;
+  t += `*Parcelamento:* ${n}x de *${money(pmt)}*\n`;
+  t += `*Taxa de juros:* ${(i*100).toLocaleString('pt-BR',{maximumFractionDigits:2})}% ao mês (Tabela Price)\n`;
+  t += `*Total a prazo:* ${money(total)}\n`;
+  t += `*Forma de pagamento:* ${sim.forma}\n`;
+  t += `*1º vencimento:* ${fmtDate(datas[0])}${n>1?` | *Último:* ${fmtDate(datas[n-1])}`:''}\n`;
+  if(sim.crono) t += `\n*Cronograma:*\n` + datas.map((d,k)=>`${String(k+1).padStart(2,'0')}) ${fmtDate(d)} - ${money(pmt)}`).join('\n') + '\n';
+  t += `\nCaso queira quitar antecipadamente, os juros das parcelas restantes são descontados.\n\nProposta válida por ${val} dia${val>1?'s':''}. Qualquer dúvida, estou à disposição!\n\n${cfg.vendedor?'Abraço,\n'+cfg.vendedor:'Abraço!'}`;
+  document.getElementById('sMsg').value = temCusto ? t : '';
+  return { custo, venda, ent, n, pmt, total, venc1 };
+}
+function enviarSimWhats(){
+  const c = clienteById(sim.clienteId);
+  abrirWhats('sMsg', c && c.telefone ? c.telefone : '');
+}
+function simParaVenda(){
+  const r = calcSim(); if(!r || !Number(sim.custo)){ toast('Informe o custo do aparelho'); return; }
+  novaVenda();
+  if(!db.clientes.length) return;
+  setTimeout(()=>{
+    const s = (id,val)=>{ const el=document.getElementById(id); if(el) el.value = val; };
+    s('vCliente', sim.clienteId); s('vTotal', r.total.toFixed(2)); s('vEntrada', r.ent||'');
+    s('vNParc', r.n); s('vVenc1', r.venc1); s('vCusto', Number(sim.custo).toFixed(2));
+    s('vMoto', Number(P().moto||0)); s('vAcess', Number(P().brinde||0)); s('vCaract', sim.produto);
+    recalcParc(); recalcLucro();
+  }, 80);
+}
+
+/* ============================ VIEW: ESTOQUE ============================ */
+let estParc = false;
+function viewEstoque(){
+  const p = P();
+  return `
+    ${custosCard('calcEst')}
+    <div class="card card-pad mt">
+      <label class="check"><input type="checkbox" id="eParc" ${estParc?'checked':''} onchange="estParc=this.checked;calcEst()"> Mostrar parcelamento em cada item</label>
+      <div class="grid2 mt-s ${estParc?'':'hidden'}" id="eParcBox">
+        <div class="field" style="margin-bottom:0"><label>Parcelas</label><input id="eN" type="number" min="1" max="36" inputmode="numeric" value="${p.parcelas}" oninput="calcEst()"></div>
+        <div class="field" style="margin-bottom:0"><label>Juros a.m. (%)</label><input id="eJ" type="number" step="0.01" inputmode="decimal" value="${p.juros}" oninput="calcEst()"></div>
+      </div>
+    </div>
+
+    <div class="section-title">Lista do fornecedor</div>
+    <div class="card card-pad">
+      <textarea class="msg-area" id="eIn" placeholder="Cole aqui a lista que o fornecedor mandou no WhatsApp" oninput="calcEst();salvarLista()">${esc(db.listaForn||'')}</textarea>
+      <p class="sub" style="color:var(--muted);margin-top:8px">Os preços são trocados pelos seus. O resto do texto fica igual.</p>
+    </div>
+
+    <div class="section-title" id="eTit">Conferência de lucro</div>
+    <div class="card"><div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Produto</th><th>Custo</th><th>Venda</th><th>Lucro</th></tr></thead>
+      <tbody id="eTb"></tbody>
+    </table></div></div>
+
+    <div class="section-title">Lista para o cliente</div>
+    <div class="card card-pad">
+      <textarea class="msg-area" id="eOut"></textarea>
+      <div class="btn-row">
+        <button class="btn primary" onclick="copiarTexto('eOut')">Copiar</button>
+        <button class="btn green" onclick="abrirWhats('eOut')">WhatsApp</button>
+      </div>
+    </div>`;
+}
+function salvarLista(){
+  db.listaForn = document.getElementById('eIn').value;
+  clearTimeout(salvarLista._t); salvarLista._t = setTimeout(()=>Store.set('listaFornecedor', db.listaForn), 1000);
+}
+function calcEst(){
+  const inp = document.getElementById('eIn'); if(!inp) return;
+  document.getElementById('eParcBox').classList.toggle('hidden', !estParc);
+  const n = Math.max(1, Math.round(num('eN')||1)), i = num('eJ')/100;
+  const fmtR = v => 'R$' + v.toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2});
+  const re = /R\$\s*(\d[\d.]*(?:,\d{1,2})?)/g;
+  let nome = '', itens = [], out = [];
+  for(const line of inp.value.split('\n')){
+    if(!/R\$/.test(line)){
+      const limpo = line.replace(/\*/g,'').trim();
+      if(limpo && !/^[⁠​•☑✅️-]/.test(limpo) && !/^lista/i.test(limpo)) nome = limpo;
+      out.push(line); continue;
+    }
+    out.push(line.replace(re, (_, nmr)=>{
+      const c = parseFloat(nmr.replace(/\./g,'').replace(',','.'));
+      const r = precoVenda(c);
+      itens.push({ nome, c, custo:r.custo, v:r.venda });
+      return fmtR(r.venda);
+    }));
+    if(estParc && itens.length){
+      const v = itens[itens.length-1].v;
+      out.push(`   ou ${n}x de ${fmtR(Math.ceil(pmtPrice(v,i,n)-1e-9))}`);
+    }
+  }
+  document.getElementById('eOut').value = out.join('\n');
+  document.getElementById('eTit').textContent = itens.length ? `Conferência de lucro (${itens.length} preços)` : 'Conferência de lucro';
+  document.getElementById('eTb').innerHTML = itens.length
+    ? itens.map(x=>`<tr><td class="nm">${esc(x.nome)}</td><td>${money(x.c)}</td><td>${money(x.v)}</td><td style="color:var(--green);font-weight:600">${money(x.v-x.custo)}</td></tr>`).join('')
+    : `<tr><td colspan="4" class="nm" style="color:var(--muted);font-weight:400">Cole a lista do fornecedor acima. Os preços precisam estar no formato R$1990,00.</td></tr>`;
 }
 
 /* ============================ VIEW: INÍCIO ============================ */
@@ -1080,7 +1349,8 @@ function salvarConfig(){
     pixChave:document.getElementById('gPixChave').value.trim(),
     pixNome:document.getElementById('gPixNome').value.trim(),
     pixBanco:document.getElementById('gPixBanco').value.trim(),
-    emailRelatorio:document.getElementById('gEmail').value.trim()
+    emailRelatorio:document.getElementById('gEmail').value.trim(),
+    preco: db.config.preco
   };
   saveConfig(); closeSheet(); toast('Configurações salvas ✅');
 }
