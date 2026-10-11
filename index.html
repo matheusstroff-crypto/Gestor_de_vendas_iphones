@@ -721,8 +721,31 @@ function viewClientes(){
     html += `<div class="card mt"><div class="empty"><div class="big">👥</div>Nenhum cliente cadastrado.</div></div>`;
     return html;
   }
+  // Ranking dos clientes que mais compraram (por valor total)
+  const rank = db.clientes.map(c=>{
+    const vs = db.vendas.filter(v=>v.clienteId===c.id);
+    return { c, n:vs.length, total:vs.reduce((s,v)=>s+Number(v.valorTotal||0),0), lucro:vs.reduce((s,v)=>s+lucroVenda(v),0) };
+  }).filter(r=>r.n>0).sort((a,b)=>b.total-a.total || b.n-a.n);
+  if(rank.length){
+    const top = rank.slice(0,5), max = top[0].total || 1;
+    const cores = ['#c9a227','#9aa0a6','#b07040'];
+    html += `<div class="section-title">🏆 Clientes que mais compram</div><div class="card">`;
+    top.forEach((r,i)=>{
+      html += `<div class="row" onclick="editarCliente('${r.c.id}')">
+        <div class="avatar" style="${i<3?`background:${cores[i]};color:#fff`:''}">${i+1}º</div>
+        <div class="grow">
+          <div class="title">${esc(r.c.nome)}</div>
+          <div class="sub">${r.n} compra${r.n>1?'s':''}</div>
+          <div style="height:4px;border-radius:4px;background:var(--line);margin-top:6px;overflow:hidden"><div style="height:100%;width:${Math.max(4,r.total/max*100)}%;background:var(--blue)"></div></div>
+        </div>
+        <div style="text-align:right"><div class="amt">${money(r.total)}</div><div style="font-size:.78rem;color:var(--green);font-weight:600">+${money(r.lucro)}</div></div>
+      </div>`;
+    });
+    html += `</div><div class="section-title">Todos os clientes</div>`;
+  }
+
   const ord = [...db.clientes].sort((a,b)=>a.nome.localeCompare(b.nome));
-  html += `<div class="card mt">`;
+  html += `<div class="card ${rank.length?'':'mt'}">`;
   ord.forEach(c=>{
     const nVendas = db.vendas.filter(v=>v.clienteId===c.id).length;
     html += `<div class="row" onclick="editarCliente('${c.id}')">
