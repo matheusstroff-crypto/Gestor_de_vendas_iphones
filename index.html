@@ -378,8 +378,9 @@ function render(){
 
 /* ============================ PRECIFICAÇÃO (compartilhada) ============================ */
 function P(){
-  if(!db.config.preco) db.config.preco = { moto:40, brinde:60, margem:18, modo:'custo', arred:10, juros:3, parcelas:12, v:2 };
+  if(!db.config.preco) db.config.preco = { moto:40, brinde:60, margem:18, modo:'custo', arred:10, juros:5, parcelas:12, v:3 };
   if(!db.config.preco.v){ db.config.preco.arred = 10; db.config.preco.v = 2; } // padrão: arredondar para a dezena
+  if(db.config.preco.v < 3){ db.config.preco.juros = 5; db.config.preco.v = 3; } // padrão: 5% a.m.
   return db.config.preco;
 }
 const num = id => Number(document.getElementById(id)?.value||0);
@@ -525,7 +526,6 @@ function calcSim(){
   if(ent>0) t += `*Entrada:* ${money(ent)}\n`;
   t += `*Parcelamento:* ${n}x de *${money(pmt)}*\n`;
   t += `*Taxa de juros:* ${(i*100).toLocaleString('pt-BR',{maximumFractionDigits:2})}% ao mês (Tabela Price)\n`;
-  t += `*Total a prazo:* ${money(total)}\n`;
   t += `*Forma de pagamento:* ${sim.forma}\n`;
   t += `*1º vencimento:* ${fmtDate(datas[0])}${n>1?` | *Último:* ${fmtDate(datas[n-1])}`:''}\n`;
   if(sim.crono) t += `\n*Cronograma:*\n` + datas.map((d,k)=>`${String(k+1).padStart(2,'0')}) ${fmtDate(d)} - ${money(pmt)}`).join('\n') + '\n';
