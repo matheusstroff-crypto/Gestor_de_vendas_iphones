@@ -378,7 +378,8 @@ function render(){
 
 /* ============================ PRECIFICAÇÃO (compartilhada) ============================ */
 function P(){
-  if(!db.config.preco) db.config.preco = { moto:40, brinde:60, margem:18, modo:'custo', arred:1, juros:3, parcelas:12 };
+  if(!db.config.preco) db.config.preco = { moto:40, brinde:60, margem:18, modo:'custo', arred:10, juros:3, parcelas:12, v:2 };
+  if(!db.config.preco.v){ db.config.preco.arred = 10; db.config.preco.v = 2; } // padrão: arredondar para a dezena
   return db.config.preco;
 }
 const num = id => Number(document.getElementById(id)?.value||0);
@@ -416,7 +417,7 @@ function custosCard(onchange){
       </div>
       <div class="field" style="margin-bottom:0"><label>Arredondar preço para cima</label>
         <select id="pArred" onchange="lerPreco();${onchange}()">
-          ${[[1,'R$ inteiro (ex.: 2.467)'],[10,'Dezena (ex.: 2.470)'],[50,'Múltiplo de 50 (ex.: 2.500)']].map(([v,l])=>`<option value="${v}" ${Number(p.arred)===v?'selected':''}>${l}</option>`).join('')}
+          ${[[10,'Dezena (ex.: 8.142 → 8.150)'],[50,'Múltiplo de 50 (ex.: 8.142 → 8.150)'],[100,'Centena (ex.: 8.142 → 8.200)'],[1,'R$ inteiro (ex.: 8.142)']].map(([v,l])=>`<option value="${v}" ${Number(p.arred)===v?'selected':''}>${l}</option>`).join('')}
         </select></div>
     </div>`;
 }
