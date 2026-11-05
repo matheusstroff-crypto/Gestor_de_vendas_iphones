@@ -184,6 +184,10 @@
     body{background:#fff; padding:0;}
     .sheet{position:static; transform:none; max-height:none; background:#fff;}
     .receipt{box-shadow:none; border:1px solid #ddd;}
+    /* imprime/salva PDF só o recibo, no topo da página */
+    body *{visibility:hidden;}
+    #reciboPrint, #reciboPrint *{visibility:visible;}
+    #reciboPrint{position:absolute; left:0; top:0; width:100%; margin:0; border-radius:0;}
   }
 </style>
 </head>
@@ -1198,7 +1202,8 @@ function verRecibo(vid){
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <div>
           <h3>Recibo de venda</h3>
-          <div style="color:var(--muted);font-size:.85rem">${esc(cfg.vendedor||'')}</div>
+          <div style="color:var(--muted);font-size:.85rem">MSX COMERCIO DE ELETRONICOS</div>
+          <div style="color:var(--muted);font-size:.85rem">CNPJ: ______________________</div>
         </div>
         <div style="font-size:1.6rem">📱</div>
       </div>
