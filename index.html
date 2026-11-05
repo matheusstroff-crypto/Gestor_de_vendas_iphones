@@ -180,14 +180,13 @@
   .login-card{ background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow); padding:26px 22px; width:100%; max-width:360px; }
 
   @media print{
-    header,nav,.overlay,.sheet-head,.no-print{display:none !important;}
     body{background:#fff; padding:0;}
-    .sheet{position:static; transform:none; max-height:none; background:#fff;}
+    /* imprime/salva PDF só o recibo: esconde tudo que não está dentro do #sheet (sem position absolute, que cortava o texto) */
+    body > *:not(#sheet){display:none !important;}
+    #sheet .sheet-head, #sheet .no-print{display:none !important;}
+    #sheet{position:static; transform:none; max-height:none; overflow:visible; background:#fff; padding:0;}
+    .sheet-body{padding:0;}
     .receipt{box-shadow:none; border:1px solid #ddd;}
-    /* imprime/salva PDF só o recibo, no topo da página */
-    body *{visibility:hidden;}
-    #reciboPrint, #reciboPrint *{visibility:visible;}
-    #reciboPrint{position:absolute; left:0; top:0; width:100%; margin:0; border-radius:0;}
   }
 </style>
 </head>
