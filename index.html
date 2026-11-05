@@ -823,7 +823,9 @@ function vendaForm(v){
   v = v || {};
   const opClientes = db.clientes.map(c=>`<option value="${c.id}" ${v.clienteId===c.id?'selected':''}>${esc(c.nome)}</option>`).join('');
   const modelos = ['15 Pro Max','15 Pro','15 Plus','15','14 Pro Max','14 Pro','14 Plus','14','13 Pro Max','13 Pro','13','13 mini','12','SE','Outro'];
-  const opModelos = modelos.map(m=>`<option ${v.modelo===m?'selected':''}>${m}</option>`).join('');
+  // sugestões = lista padrão + modelos já usados em vendas; o campo aceita digitar um modelo novo
+  const sugModelos = [...new Set([...modelos.filter(m=>m!=='Outro'), ...db.vendas.map(x=>x.modelo).filter(Boolean)])];
+  const opModelos = sugModelos.map(m=>`<option value="${esc(m)}"></option>`).join('');
   return `
     <div class="section-title">Cliente</div>
     <div class="card card-pad">
@@ -840,7 +842,7 @@ function vendaForm(v){
     <div class="section-title">Aparelho</div>
     <div class="card card-pad">
       <div class="grid2">
-        <div class="field"><label>Modelo *</label><select id="vModelo">${opModelos}</select></div>
+        <div class="field"><label>Modelo * <span class="sub" style="color:var(--muted)">(digite um modelo novo se não estiver na lista)</span></label><input id="vModelo" list="vModelosList" value="${esc(v.modelo||'')}" placeholder="Ex: 16 Pro Max"><datalist id="vModelosList">${opModelos}</datalist></div>
         <div class="field"><label>Capacidade</label>
           <select id="vCap">
             ${['','64GB','128GB','256GB','512GB','1TB'].map(x=>`<option ${v.capacidade===x?'selected':''}>${x}</option>`).join('')}
@@ -988,8 +990,9 @@ function compressImage(file){
 async function salvarVenda(id){
   const clienteId = document.getElementById('vCliente').value;
   const total = Number(document.getElementById('vTotal').value||0);
-  const modelo = document.getElementById('vModelo').value;
+  const modelo = document.getElementById('vModelo').value.trim();
   if(!clienteId){ toast('Selecione o comprador'); return; }
+  if(!modelo){ toast('Informe o modelo'); return; }
   if(!total){ toast('Informe o valor total'); return; }
 
   const entrada = Number(document.getElementById('vEntrada').value||0);
