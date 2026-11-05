@@ -1487,6 +1487,8 @@ async function confirmarCodigo(){
     });
     if(!r.ok){ showLogin('Código inválido ou expirado','codigo'); return; }
     saveSession(await r.json());
+    // entrou por código (recuperação): marca para exigir senha nova
+    await sbFetch('/auth/v1/user', { method:'PUT', body: JSON.stringify({ data:{ must_change_password:true } }) });
   }catch(e){ showLogin('Sem conexão','codigo'); return; }
   loginCodigoEnviado = false;
   await bootApp();
@@ -1501,9 +1503,42 @@ async function fazerLogin(){
   await bootApp();
 }
 async function bootApp(){
+  const u = await sbUser();
+  if(u && u.user_metadata && u.user_metadata.must_change_password){ showTrocarSenhaObrigatoria(); return; }
   document.body.classList.remove('logged-out');
   await load();
   go('inicio');
+}
+async function sbUser(){
+  try{ const r = await sbFetch('/auth/v1/user'); return r.ok ? await r.json() : null; }catch(e){ return null; }
+}
+// primeiro acesso após recuperação: obriga definir senha nova antes de usar o app
+function showTrocarSenhaObrigatoria(msg){
+  document.body.classList.add('logged-out');
+  document.getElementById('app').innerHTML = `
+    <div class="login-wrap">
+      <div class="login-card">
+        <div class="brand" style="justify-content:center;margin-bottom:6px"><span class="dot">📱</span> iVendas</div>
+        <p class="center" style="color:var(--muted);margin-bottom:18px">Defina uma nova senha para continuar</p>
+        <div class="field"><label>Nova senha (mín. 6 caracteres)</label><input id="novaSenha" type="password" autocomplete="new-password"></div>
+        <div class="field"><label>Confirme a nova senha</label><input id="novaSenha2" type="password" autocomplete="new-password"></div>
+        ${msg?`<p class="center" style="color:var(--red);font-size:.85rem;margin-bottom:10px">${esc(msg)}</p>`:''}
+        <button class="btn blue block" id="loginBtn" onclick="salvarNovaSenhaObrigatoria()">Salvar nova senha</button>
+        <button class="btn block mt-s" onclick="sair()">Sair</button>
+      </div>
+    </div>`;
+}
+async function salvarNovaSenhaObrigatoria(){
+  const a = document.getElementById('novaSenha').value;
+  const b = document.getElementById('novaSenha2').value;
+  if(a.length<6){ showTrocarSenhaObrigatoria('Senha muito curta (mín. 6)'); return; }
+  if(a!==b){ showTrocarSenhaObrigatoria('As senhas não conferem'); return; }
+  const btn = document.getElementById('loginBtn'); if(btn){ btn.textContent='Salvando...'; btn.disabled=true; }
+  try{
+    const r = await sbFetch('/auth/v1/user', { method:'PUT', body: JSON.stringify({ password:a, data:{ must_change_password:false } }) });
+    if(!r.ok){ showTrocarSenhaObrigatoria('Não consegui salvar a senha'); return; }
+  }catch(e){ showTrocarSenhaObrigatoria('Sem conexão'); return; }
+  await bootApp();
 }
 async function sair(){
   clearSession(); closeSheet(); showLogin();
