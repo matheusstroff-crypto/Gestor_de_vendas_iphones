@@ -896,9 +896,9 @@ function vendaForm(v){
 
     <div class="section-title">Recibo de compra do fornecedor</div>
     <div class="card card-pad">
-      <p class="sub" style="color:var(--muted); margin-bottom:8px;">Anexe a foto/print do recibo que seu fornecedor te deu (fica salvo só pra você).</p>
-      <input id="vRecibo" type="file" accept="image/*" onchange="preFornecedor(this)">
-      <div class="attach-prev" id="fornecedorPrev">${v._fornecedorImg?`<img src="${v._fornecedorImg}"><button class="link mt-s" onclick="removerFornecedor()">Remover anexo</button>`:''}</div>
+      <p class="sub" style="color:var(--muted); margin-bottom:8px;">Anexe a foto/print ou PDF do recibo que seu fornecedor te deu (fica salvo só pra você).</p>
+      <input id="vRecibo" type="file" accept="image/*,application/pdf" onchange="preFornecedor(this)">
+      <div class="attach-prev" id="fornecedorPrev">${v._fornecedorImg?`${anexoHtml(v._fornecedorImg)}<button class="link mt-s" onclick="removerFornecedor()">Remover anexo</button>`:''}</div>
     </div>
 
     <button class="btn blue block mt" onclick="salvarVenda('${v.id||''}')">${v.id?'Salvar alterações':'Registrar venda'}</button>
@@ -961,9 +961,19 @@ function recalcLucro(){
 
 async function preFornecedor(inp){
   const f = inp.files[0]; if(!f) return;
-  const img = await compressImage(f);
+  let img;
+  if(f.type === 'application/pdf'){
+    if(f.size > 5*1024*1024){ toast('PDF muito grande (máx. 5 MB)'); inp.value=''; return; }
+    img = await new Promise(r=>{ const fr = new FileReader(); fr.onload = e=>r(e.target.result); fr.readAsDataURL(f); });
+  } else img = await compressImage(f);
   _fornecedorImg = img;
-  document.getElementById('fornecedorPrev').innerHTML = `<img src="${img}"><button class="link mt-s" onclick="removerFornecedor()">Remover anexo</button>`;
+  document.getElementById('fornecedorPrev').innerHTML = `${anexoHtml(img)}<button class="link mt-s" onclick="removerFornecedor()">Remover anexo</button>`;
+}
+// imagem mostra direto; PDF vira link de download/abertura
+function anexoHtml(src){
+  return src.startsWith('data:application/pdf')
+    ? `<a class="btn ghost block" href="${src}" download="recibo-fornecedor.pdf">📄 Abrir recibo (PDF)</a>`
+    : `<img src="${src}" style="width:100%;border-radius:12px;border:1px solid var(--line)">`;
 }
 function removerFornecedor(){
   _fornecedorImg = null;
@@ -1121,7 +1131,7 @@ async function abrirVenda(id){
     <div class="section-title">Recibo do fornecedor</div>
     <div class="card card-pad">
       ${fornecedor
-        ? `<img src="${fornecedor}" style="width:100%;border-radius:12px;border:1px solid var(--line)">`
+        ? anexoHtml(fornecedor)
         : `<p class="sub" style="color:var(--muted)">Nenhum recibo anexado.</p>`}
     </div>
 
