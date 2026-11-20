@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Simulação de parcelamento</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Layout: uma coluna de cartões, valores em destaque, tabela de parcelas embaixo. */
+  :root{
+    --bg:#f2f2f5; --surface:#ffffff; --surface-2:#fafafc; --ink:#1d1d1f; --muted:#6e6e73;
+    --line:#e4e4e9; --accent:#0a84ff; --accent-soft:#eaf3ff; --green:#1f8f52;
+    --radius:16px; --shadow:0 1px 3px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.05);
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#000000; --surface:#1c1c1e; --surface-2:#2c2c2e; --ink:#f5f5f7; --muted:#a1a1a6;
+      --line:#3a3a3c; --accent:#0a84ff; --accent-soft:#0a2d52; --green:#30d158;
+      --shadow:none; color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#000000; --surface:#1c1c1e; --surface-2:#2c2c2e; --ink:#f5f5f7; --muted:#a1a1a6;
+    --line:#3a3a3c; --accent:#0a84ff; --accent-soft:#0a2d52; --green:#30d158;
+    --shadow:none; color-scheme:dark;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.45; padding-block:0 40px;
+    padding-left:max(16px, env(safe-area-inset-left, 0px));
+    padding-right:max(16px, env(safe-area-inset-right, 0px));
+  }
+  body::before{
+    content:""; position:fixed; inset:0 0 auto; height:env(safe-area-inset-top, 0px);
+    z-index:10; background:var(--bg);
+  }
+  header{
+    position:sticky; top:env(safe-area-inset-top, 0px); z-index:5; background:var(--bg);
+    padding-block:14px 12px; font-weight:700; font-size:1.2rem; letter-spacing:-.02em;
+    border-bottom:1px solid var(--line); margin:0 -16px; padding-inline:16px;
+  }
+  main{max-width:560px; margin:0 auto;}
+  .section{font-size:.78rem; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin:20px 4px 8px;}
+  .card{background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow); padding:16px;}
+  .field{display:flex; flex-direction:column; gap:5px; margin-bottom:12px; min-width:0;}
+  .field label{font-size:.82rem; color:var(--muted); font-weight:600;}
+  .field input{font-size:16px; padding:11px 12px; border:1px solid var(--line); border-radius:11px; background:var(--surface-2); color:var(--ink); outline:none; width:100%; min-width:0;}
+  .field input:focus{border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft);}
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  .grid > *{min-width:0;}
+  .check{display:flex; align-items:center; gap:9px; font-size:.92rem; margin-top:2px;}
+  .check input{width:20px; height:20px; accent-color:var(--accent);}
+  .stats{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .stat{background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow); padding:14px; min-width:0;}
+  .stat.wide{grid-column:1 / -1;}
+  .lbl{font-size:.78rem; color:var(--muted); font-weight:600;}
+  .val{font-size:1.35rem; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums; overflow-wrap:anywhere;}
+  .val.accent{color:var(--accent);} .val.green{color:var(--green);}
+  .hint{font-size:.74rem; color:var(--muted); margin-top:3px;}
+  .tbl-wrap{overflow-x:auto; background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow); margin-top:10px;}
+  .tbl{width:100%; border-collapse:collapse; font-size:.86rem; font-variant-numeric:tabular-nums;}
+  .tbl th{font-size:.72rem; color:var(--muted); font-weight:600; text-align:right; padding:10px 12px; border-bottom:1px solid var(--line); white-space:nowrap;}
+  .tbl td{padding:10px 12px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap;}
+  .tbl tr:last-child td{border-bottom:none;}
+  .tbl th:first-child, .tbl td:first-child{text-align:left;}
+  .empty{color:var(--muted); text-align:center; padding:18px 0; font-size:.9rem;}
+  @media (max-width:360px){ .grid, .stats{grid-template-columns:1fr;} }
+</style>
+
+<header>Simulação de parcelamento</header>
+
+<main>
+  <div class="section">Valor e condições</div>
+  <div class="card">
+    <div class="field">
+      <label for="vBase">Valor a parcelar (R$)</label>
+      <input id="vBase" type="number" step="0.01" inputmode="decimal" placeholder="Ex: 5000" oninput="calc()">
+    </div>
+    <div class="grid">
+      <div class="field">
+        <label for="sN">Parcelas</label>
+        <input id="sN" type="number" min="1" max="36" inputmode="numeric" value="12" oninput="calc()">
+      </div>
+      <div class="field">
+        <label for="sJ">Juros a.m. (%)</label>
+        <input id="sJ" type="number" step="0.01" inputmode="decimal" value="5" oninput="calc()">
+      </div>
+    </div>
+    <div class="field">
+      <label for="sVenc">1º vencimento</label>
+      <input id="sVenc" type="date" oninput="calc()">
+    </div>
+    <label class="check"><input id="sArr" type="checkbox" checked onchange="calc()"> Arredondar parcela para cima (R$ inteiro)</label>
+  </div>
+
+  <div class="section">Resultado</div>
+  <div class="stats">
+    <div class="stat wide">
+      <div class="lbl">Juros ao ano</div>
+      <div class="val accent" id="oAno">–</div>
+      <div class="hint" id="oAnoHint">Composto: (1 + juros a.m.)¹² − 1</div>
+    </div>
+    <div class="stat">
+      <div class="lbl">Parcela</div>
+      <div class="val" id="oParc">–</div>
+      <div class="hint" id="oParcHint"></div>
+    </div>
+    <div class="stat">
+      <div class="lbl">Total a prazo</div>
+      <div class="val" id="oTotal">–</div>
+    </div>
+    <div class="stat wide">
+      <div class="lbl">Juros totais</div>
+      <div class="val green" id="oJuros">–</div>
+      <div class="hint" id="oJurosHint"></div>
+    </div>
+  </div>
+
+  <div class="section">Tabela de parcelas (Price)</div>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Nº</th><th>Vencimento</th><th>Parcela</th><th>Juros</th><th>Saldo</th></tr></thead>
+      <tbody id="oTb"><tr><td colspan="5" class="empty">Informe o valor a parcelar</td></tr></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const brl = v => v.toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+const pct = v => v.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}) + '%';
+
+// ISO 'AAAA-MM-DD' + k meses (UTC, sem problema de fuso)
+function addMeses(iso, k){
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1 + k, d)).toISOString().slice(0, 10);
+}
+function fmtData(iso){ const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; }
+
+function calc(){
+  const V = Number($('vBase').value) || 0;
+  const n = Math.max(1, Math.round(Number($('sN').value) || 1));
+  const i = (Number($('sJ').value) || 0) / 100;
+  const venc1 = $('sVenc').value;
+
+  if(V <= 0 || !venc1){
+    ['oAno','oParc','oTotal','oJuros'].forEach(id => $(id).textContent = '–');
+    $('oParcHint').textContent = ''; $('oJurosHint').textContent = '';
+    $('oAnoHint').textContent = 'Composto: (1 + juros a.m.)¹² − 1';
+    $('oTb').innerHTML = `<tr><td colspan="5" class="empty">${V<=0?'Informe o valor a parcelar':'Informe o 1º vencimento'}</td></tr>`;
+    return;
+  }
+
+  // Tabela Price
+  const pmt0 = i > 0 ? V * i / (1 - Math.pow(1 + i, -n)) : V / n;
+  const pmt = $('sArr').checked ? Math.ceil(pmt0 - 1e-9) : pmt0;
+  const total = pmt * n;
+  const juros = total - V;
+
+  let saldo = V, rows = '';
+  for(let k = 1; k <= n; k++){
+    const j = saldo * i;
+    saldo = Math.max(0, saldo - (pmt - j));
+    rows += `<tr><td>${k}</td><td>${fmtData(addMeses(venc1, k-1))}</td><td>${brl(pmt)}</td><td>${brl(j)}</td><td>${brl(saldo)}</td></tr>`;
+  }
+
+  const anoComp = (Math.pow(1 + i, 12) - 1) * 100;
+  const anoNom = i * 12 * 100;
+
+  $('oAno').textContent = pct(anoComp);
+  $('oAnoHint').textContent = `Composto · nominal (juros a.m. × 12): ${pct(anoNom)}`;
+  $('oParc').textContent = brl(pmt);
+  $('oParcHint').textContent = `${n}x · ${pct(i*100)} a.m.`;
+  $('oTotal').textContent = brl(total);
+  $('oJuros').textContent = brl(juros);
+  $('oJurosHint').textContent = `${pct(juros / V * 100)} sobre o valor parcelado`;
+  $('oTb').innerHTML = rows;
+}
+
+// valores iniciais: vencimento = hoje + 1 mês
+(function init(){
+  const t = new Date();
+  const hoje = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+  $('sVenc').value = addMeses(hoje, 1);
+  calc();
+})();
+</script>
+
+</body>
+</html>
